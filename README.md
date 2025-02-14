@@ -1,6 +1,6 @@
-# Qwen2.5-VL API Server
+# Janus-Pro-7B API Server
 
-An OpenAI-compatible API server for the Qwen2.5-VL vision-language model, enabling multimodal conversations with image understanding capabilities.
+An OpenAI-compatible API server for the Janus-Pro-7B vision-language model, enabling multimodal conversations with image understanding capabilities.
 
 ## Features
 
@@ -26,8 +26,8 @@ An OpenAI-compatible API server for the Qwen2.5-VL vision-language model, enabli
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/phildougherty/qwen2.5-VL-inference-openai.git
-cd qwen-vision
+git clone https://github.com/ahjdzx/janus-pro-7b-inference-openai.git
+cd janus-pro-7b-inference-openai
 ```
 
 2. Download the model:
@@ -63,7 +63,7 @@ Example with text:
 curl -X POST http://localhost:9192/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen2.5-VL-7B-Instruct",
+    "model": "Janus-Pro-7B",
     "messages": [
       {
         "role": "user",
@@ -78,7 +78,7 @@ Example with image:
 curl -X POST http://localhost:9192/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen2.5-VL-7B-Instruct",
+    "model": "Janus-Pro-7B",
     "messages": [
       {
         "role": "user",
@@ -118,7 +118,7 @@ Environment variables in docker-compose.yml:
 1. In OpenWebUI admin panel, add a new API endpoint:
    - Base URL: `http://localhost:9192`
    - API Key: (leave blank)
-   - Model: `Qwen2.5-VL-7B-Instruct`
+   - Model: `Janus-Pro-7B`
 
 2. The model will appear in the model selection dropdown with vision capabilities enabled.
 
@@ -138,7 +138,7 @@ Recommended:
 
 ```yaml
 services:
-  qwen-vl-api:
+  janus-pro-api:
     build: .
     ports:
       - "9192:9192"
@@ -204,7 +204,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Qwen team for the base model
+- DeepSeek team for the base model
 - FastAPI for the web framework
 - Transformers library for model handling
 
