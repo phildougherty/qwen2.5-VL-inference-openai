@@ -1,11 +1,10 @@
 torchvision
 fastapi
-uvicorn==0.27.1
+uvicorn
 torch
-accelerate>=1.3.0
-pydantic==2.6.1
-python-multipart==0.0.6
-pillow==10.2.0
+pydantic
+python-multipart
+pillow
 packaging
 numpy
 safetensors
