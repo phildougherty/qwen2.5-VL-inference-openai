@@ -161,7 +161,7 @@ def log_system_info():
 
 def initialize_model():
     """Initialize the model and processor"""
-    global vl_gpt, vl_chat_processor
+    global vl_gpt, vl_chat_processor, tokenizer
     if vl_gpt is None or vl_chat_processor is None:
         try:
             start_time = time.time()
@@ -196,7 +196,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down application...")
-        global vl_gpt, vl_chat_processor
+        global vl_gpt, vl_chat_processor, tokenizer
         if vl_gpt is not None:
             try:
                 del vl_gpt
