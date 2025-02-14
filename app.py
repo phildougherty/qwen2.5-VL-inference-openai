@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
 import psutil
 import torch
 import uvicorn
@@ -19,7 +18,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 
 from janus.models import MultiModalityCausalLM, VLChatProcessor
 
-model_path = "/app/models/Janus-Pro-7B"
+model_path = "/models/llm/Janus-Pro-7B"
 
 # Configure logging
 logging.basicConfig(
