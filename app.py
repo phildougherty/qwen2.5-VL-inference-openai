@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+import GPUtil
 import psutil
 import torch
 import uvicorn

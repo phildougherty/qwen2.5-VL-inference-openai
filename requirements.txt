@@ -6,8 +6,10 @@ pydantic
 python-multipart
 pillow
 packaging
+gputil
 numpy
 safetensors
 transformers
 opencv-python
 git+https://github.com/deepseek-ai/Janus
+
