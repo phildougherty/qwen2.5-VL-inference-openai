@@ -16,8 +16,10 @@ import GPUtil
 import base64
 from PIL import Image
 import io
+import argparse
+import os
 
-MODEL_DIR = "/app/models/Qwen2.5-VL-7B-Instruct"
+MODEL_DIR_BASE = "/app/models/"
 
 # Configure logging
 logging.basicConfig(
@@ -28,8 +30,13 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 model = None
+current_loaded_model = None
 processor = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--model', type=str, default='Qwen2.5-VL-7B-Instruct', help="Which Qwen 2.5 VL model to load")
+args = parser.parse_args()
 
 class ImageURL(BaseModel):
     url: str
@@ -139,20 +146,22 @@ def log_system_info():
     except Exception as e:
         logger.warning(f"Failed to log system info: {str(e)}")
 
-def initialize_model():
+def initialize_model(model_name: str):
     """Initialize the model and processor"""
-    global model, processor
+    global model, processor, current_loaded_model
     if model is None or processor is None:
         try:
             start_time = time.time()
             logger.info("Starting model initialization...")
             log_system_info()
 
+            model_dir_path = os.path.join(MODEL_DIR_BASE, model_name)
+
             try:
                 import flash_attn
                 logger.info("Flash attention is available, using it...")
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    MODEL_DIR,
+                    model_dir_path,
                     torch_dtype=torch.bfloat16,
                     attn_implementation="flash_attention_2",
                     device_map="auto",
@@ -161,14 +170,14 @@ def initialize_model():
             except (ImportError, ModuleNotFoundError) as e:
                 logger.warning(f"Flash attention not available: {str(e)}")
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    MODEL_DIR,
+                    model_dir_path,
                     torch_dtype=torch.bfloat16,
                     device_map="auto",
                     local_files_only=True
                 ).eval()
 
             processor = AutoProcessor.from_pretrained(
-                MODEL_DIR,
+                model_dir_path,
                 local_files_only=True
             )
 
@@ -183,7 +192,7 @@ def initialize_model():
 async def lifespan(app: FastAPI):
     logger.info("Starting application initialization...")
     try:
-        initialize_model()
+        initialize_model(args.model)
         logger.info("Application startup complete!")
         yield
     finally:
@@ -221,11 +230,11 @@ async def list_models():
     return ModelList(
         data=[
             ModelCard(
-                id="Qwen2.5-VL-7B-Instruct",
+                id=current_loaded_model,
                 created=1709251200,
                 owned_by="Qwen",
                 permission=[{
-                    "id": "modelperm-Qwen2.5-VL-7B-Instruct",
+                    "id": current_loaded_model,
                     "created": 1709251200,
                     "allow_create_engine": False,
                     "allow_sampling": True,
@@ -243,8 +252,8 @@ async def list_models():
                     "embeddings": False,
                     "text_completion": True
                 },
-                context_window=4096,
-                max_tokens=2048
+                context_window=131072,
+                max_tokens=8192
             )
         ]
     )
@@ -252,6 +261,13 @@ async def list_models():
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest):
     """Handle chat completion requests with vision support"""
+
+    if request.model != current_loaded_model:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested model '{request.model}' not loaded. Current model is {current_loaded_model}"
+        )
+
     try:
         request_start_time = time.time()
         logger.info(f"Received chat completion request for model: {request.model}")
