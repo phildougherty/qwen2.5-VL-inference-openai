@@ -104,14 +104,14 @@ def process_base64_image(base64_string: str) -> Image.Image:
         # Remove data URL prefix if present
         if 'base64,' in base64_string:
             base64_string = base64_string.split('base64,')[1]
-        
+
         image_data = base64.b64decode(base64_string)
         image = Image.open(io.BytesIO(image_data))
-        
+
         # Convert to RGB if necessary
         if image.mode not in ('RGB', 'L'):
             image = image.convert('RGB')
-        
+
         return image
     except Exception as e:
         logger.error(f"Error processing base64 image: {str(e)}")
@@ -147,7 +147,7 @@ def initialize_model():
             start_time = time.time()
             logger.info("Starting model initialization...")
             log_system_info()
-            
+
             try:
                 import flash_attn
                 logger.info("Flash attention is available, using it...")
@@ -166,12 +166,12 @@ def initialize_model():
                     device_map="auto",
                     local_files_only=True
                 ).eval()
-            
+
             processor = AutoProcessor.from_pretrained(
                 MODEL_DIR,
                 local_files_only=True
             )
-            
+
             end_time = time.time()
             logger.info(f"Model initialized in {end_time - start_time:.2f} seconds")
             log_system_info()
@@ -256,7 +256,7 @@ async def chat_completions(request: ChatCompletionRequest):
         request_start_time = time.time()
         logger.info(f"Received chat completion request for model: {request.model}")
         logger.info(f"Request content: {request.json()}")
-        
+
         messages = []
         for msg in request.messages:
             if isinstance(msg.content, str):
@@ -277,15 +277,15 @@ async def chat_completions(request: ChatCompletionRequest):
                                     "image": process_base64_image(content_item.image_url["url"])
                                 })
                 messages.append({"role": msg.role, "content": processed_content})
-        
+
         text = processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
+
         image_inputs, video_inputs = process_vision_info(messages)
-        
+
         inputs = processor(
             text=[text],
             images=image_inputs,
@@ -293,24 +293,24 @@ async def chat_completions(request: ChatCompletionRequest):
             padding=True,
             return_tensors="pt"
         ).to(device)
-        
+
         generated_ids = model.generate(
             **inputs,
             max_new_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p
         )
-        
+
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
-        
+
         response = processor.batch_decode(
             generated_ids_trimmed,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False
         )[0]
-        
+
         if request.response_format and request.response_format.get("type") == "json_object":
             try:
                 if response.startswith('```'):
@@ -322,10 +322,10 @@ async def chat_completions(request: ChatCompletionRequest):
             except json.JSONDecodeError as e:
                 logger.error(f"JSON parsing error: {str(e)}")
                 raise HTTPException(status_code=400, detail=f"Invalid JSON response: {str(e)}")
-        
+
         total_time = time.time() - request_start_time
         logger.info(f"Request completed in {total_time:.2f} seconds")
-        
+
         return ChatCompletionResponse(
             id=f"chatcmpl-{datetime.now().strftime('%Y%m%d%H%M%S')}",
             object="chat.completion",
