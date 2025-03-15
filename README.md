@@ -115,10 +115,9 @@ Environment variables in docker-compose.yml:
 
 ## Integration with OpenWebUI
 
-1. In OpenWebUI admin panel, add a new API endpoint:
-   - Base URL: `http://localhost:9192`
+1. In OpenWebUI admin panel, add a new OpenAI API endpoint:
+   - Base URL: `http://<server name>:9192/v1`
    - API Key: (leave blank)
-   - Model: `Qwen2.5-VL-7B-Instruct`
 
 2. The model will appear in the model selection dropdown with vision capabilities enabled.
 

@@ -6,7 +6,6 @@ services:
     volumes:
       - ./models:/app/models
       - ./:/app
-      - ./webhook_logs:/app/webhook_logs:rw
     deploy:
       resources:
         reservations:
@@ -16,13 +15,6 @@ services:
               capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - DATABASE_URL=postgresql://quotes_user:quotes_pass@db:5432/quotes_db
-      - POSTGRES_DB=quotes_db
-      - POSTGRES_USER=quotes_user
-      - POSTGRES_PASSWORD=quotes_pass
-      - POSTGRES_HOST=db
-      - DEV_MODE=true
-    shm_size: '8gb'
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9192/health"]
