@@ -17,6 +17,7 @@ import base64
 from PIL import Image
 import io
 import argparse
+import shutil
 import os
 
 MODEL_DIR_BASE = "./app/models/"
@@ -37,6 +38,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, default=9192, help="Which port to listen on for HTTP API requests")
 parser.add_argument('--model', type=str, default='Qwen2.5-VL-7B-Instruct', help="Which Qwen 2.5 VL model to load")
+parser.add_argument(
+    '--resume',
+    action='store_true',
+    help="Attempt to resume partial downloads if possible"
+)
 args = parser.parse_args()
 
 class ImageURL(BaseModel):
@@ -147,6 +153,47 @@ def log_system_info():
     except Exception as e:
         logger.warning(f"Failed to log system info: {str(e)}")
 
+def download_model(model_name: str):
+    """Download and save model files under a subdirectory named after the given model name"""
+
+    target_dir = os.path.join(MODEL_DIR_BASE, model_name)
+
+    try:
+        # Create target directory structure
+        os.makedirs(target_dir, exist_ok=True)
+
+        logger.info(f"Downloading {model_name} processor configuration...")
+        processor = AutoProcessor.from_pretrained(
+            f"Qwen/{model_name}",
+        )
+        processor.save_pretrained(target_dir)
+
+        logger.info(f"Downloading {model_name} model files...")
+        with torch.inference_mode():
+            model_temp = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                f"Qwen/{model_name}",
+                torch_dtype=torch.float16,
+                device_map="auto",
+                offload_folder="offload",
+                offload_state_dict=True,
+                low_cpu_mem_usage=True
+            )
+
+        logger.info(f"Saving model to {target_dir}...")
+        model_temp.save_pretrained(
+            target_dir,
+            safe_serialization=True,
+            max_shard_size="2GB"
+        )
+
+        # Cleanup temporary files
+        if os.path.exists("offload"):
+            shutil.rmtree("offload")
+
+    except Exception as e:
+        logger.error(f"Model download failed: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Failed to save model '{model_name}'") from e
+
 def initialize_model(model_name: str):
     """Initialize the model and processor"""
     global model, processor, current_loaded_model
@@ -156,8 +203,24 @@ def initialize_model(model_name: str):
             logger.info("Starting model initialization...")
             log_system_info()
 
+            # Construct full path to model directory
             model_dir_path = os.path.join(MODEL_DIR_BASE, model_name)
 
+            # Check and download model files if needed
+            if not os.path.exists(model_dir_path):
+                logger.warning(f"Model '{model_name}' not found. Downloading now...")
+                try:
+                    download_model(model_name)
+                except Exception as e:
+                    raise RuntimeError("Download failed: " + str(e))
+            elif args.resume:
+                logger.warning(f"Resuming download of model '{model_name}'.")
+                try:
+                    download_model(model_name)
+                except Exception as e:
+                    raise RuntimeError("Download failed: " + str(e))
+            else:
+                logger.info(f"Using existing files from {model_dir_path}")
             try:
                 import flash_attn
                 logger.info("Flash attention is available, using it...")
