@@ -35,6 +35,7 @@ processor = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--port', type=int, default=9192, help="Which port to listen on for HTTP API requests")
 parser.add_argument('--model', type=str, default='Qwen2.5-VL-7B-Instruct', help="Which Qwen 2.5 VL model to load")
 args = parser.parse_args()
 
@@ -381,4 +382,4 @@ async def health_check():
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=9192)
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
