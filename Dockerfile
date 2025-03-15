@@ -6,6 +6,7 @@ WORKDIR /app
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+ENV QWEN_MODEL="Qwen2.5-VL-7B-Instruct"
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
@@ -44,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:9192/health || exit 1
 
 # Start the application
-CMD ["python3", "app.py"]
+CMD python3 app.py --model "${QWEN_MODEL}"

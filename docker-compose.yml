@@ -15,6 +15,7 @@ services:
               capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - QWEN_MODEL: ${QWEN_MODEL:-"Qwen2.5-VL-7B-Instruct"}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9192/health"]
