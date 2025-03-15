@@ -19,7 +19,7 @@ import io
 import argparse
 import os
 
-MODEL_DIR_BASE = "/app/models/"
+MODEL_DIR_BASE = "./app/models/"
 
 # Configure logging
 logging.basicConfig(
