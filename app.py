@@ -43,6 +43,13 @@ parser.add_argument(
     action='store_true',
     help="Attempt to resume partial downloads if possible"
 )
+parser.add_argument(
+    '--quant',
+    type=str,
+    choices=['int8', 'int4'],
+    default=None,
+    help='Quantization level for model loading (requires bitsandbytes and CUDA)'
+)
 args = parser.parse_args()
 
 class ImageURL(BaseModel):
@@ -221,36 +228,84 @@ def initialize_model(model_name: str):
                     raise RuntimeError("Download failed: " + str(e))
             else:
                 logger.info(f"Using existing files from {model_dir_path}")
+
+            # Check for flash attention availability first
+            use_flash = False
             try:
                 import flash_attn
                 logger.info("Flash attention is available, using it...")
+                use_flash = True
+            except ImportError:
+                logger.warning("Flash attention not available. Using default implementation.")
+
+            if args.quant:  # Quantization requested
+                if not torch.cuda.is_available():
+                    raise RuntimeError("Quantization requires CUDA support")
+
+                try:
+                    import bitsandbytes as bnb
+                except ImportError:
+                    logger.error(
+                        "bitsandbytes is required for quantization. Install with: pip install bitsandbytes -U"
+                    )
+                    raise
+
+                model_kwargs = {
+                    'device_map': 'auto',
+                    'torch_dtype': torch.float16,
+                    'local_files_only': True
+                }
+
+                # Add flash attention if available
+                if use_flash:
+                    model_kwargs['attn_implementation'] = "flash_attention_2"
+
+                if args.quant == 'int8':
+                    model_kwargs["load_in_8bit"] = True
+                elif args.quant == 'int4':
+                    model_kwargs.update({
+                        "load_in_4bit": True,
+                        "bnb_4bit_use_double_quant": True,
+                        "bnb_4bit_compute_dtype": torch.float16
+                    })
+
+                # Load quantized model
+                logger.info(f"Loading {args.quant}-bit quantized model...")
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     model_dir_path,
-                    torch_dtype=torch.bfloat16,
-                    attn_implementation="flash_attention_2",
-                    device_map="auto",
-                    local_files_only=True
-                ).eval()
-            except (ImportError, ModuleNotFoundError) as e:
-                logger.warning(f"Flash attention not available: {str(e)}")
-                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    model_dir_path,
-                    torch_dtype=torch.bfloat16,
-                    device_map="auto",
-                    local_files_only=True
+                    **model_kwargs
                 ).eval()
 
-            processor = AutoProcessor.from_pretrained(
-                model_dir_path,
-                local_files_only=True
-            )
+            else:  # Default loading path without quantization
+                try:
+                    import flash_attn
+                    logger.info("Flash attention is available, using it...")
+                    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                        model_dir_path,
+                        torch_dtype=torch.bfloat16,
+                        attn_implementation="flash_attention_2",
+                        device_map="auto",
+                        local_files_only=True
+                    ).eval()
+                except (ImportError, ModuleNotFoundError) as e:
+                    logger.warning(f"Flash attention not available: {str(e)}")
+                    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                        model_dir_path,
+                        torch_dtype=torch.bfloat16,
+                        device_map="auto",
+                        local_files_only=True
+                    ).eval()
+
+            processor = AutoProcessor.from_pretrained(model_dir_path, local_files_only=True)
+            current_loaded_model = model_name
 
             end_time = time.time()
             logger.info(f"Model initialized in {end_time - start_time:.2f} seconds")
             log_system_info()
+
         except Exception as e:
-            logger.error(f"Model initialization error: {str(e)}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize model: {str(e)}")
+            logger.error(f"Error initializing model: {str(e)}", exc_info=True)
+            raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -440,6 +495,7 @@ async def health_check():
         "model_loaded": model is not None and processor is not None,
         "device": str(device),
         "cuda_available": torch.cuda.is_available(),
+        "quantization": args.quant if args.quant else "none",
         "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
         "timestamp": datetime.now().isoformat()
     }
