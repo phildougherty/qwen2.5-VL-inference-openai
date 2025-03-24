@@ -16,8 +16,11 @@ import GPUtil
 import base64
 from PIL import Image
 import io
+import argparse
+import shutil
+import os
 
-MODEL_DIR = "/app/models/Qwen2.5-VL-7B-Instruct"
+MODEL_DIR_BASE = "./app/models/"
 
 # Configure logging
 logging.basicConfig(
@@ -28,8 +31,26 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 model = None
+current_loaded_model = None
 processor = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--port', type=int, default=9192, help="Which port to listen on for HTTP API requests")
+parser.add_argument('--model', type=str, default='Qwen2.5-VL-7B-Instruct', help="Which Qwen 2.5 VL model to load")
+parser.add_argument(
+    '--resume',
+    action='store_true',
+    help="Attempt to resume partial downloads if possible"
+)
+parser.add_argument(
+    '--quant',
+    type=str,
+    choices=['int8', 'int4'],
+    default=None,
+    help='Quantization level for model loading (requires bitsandbytes and CUDA)'
+)
+args = parser.parse_args()
 
 class ImageURL(BaseModel):
     url: str
@@ -104,14 +125,14 @@ def process_base64_image(base64_string: str) -> Image.Image:
         # Remove data URL prefix if present
         if 'base64,' in base64_string:
             base64_string = base64_string.split('base64,')[1]
-        
+
         image_data = base64.b64decode(base64_string)
         image = Image.open(io.BytesIO(image_data))
-        
+
         # Convert to RGB if necessary
         if image.mode not in ('RGB', 'L'):
             image = image.convert('RGB')
-        
+
         return image
     except Exception as e:
         logger.error(f"Error processing base64 image: {str(e)}")
@@ -139,51 +160,158 @@ def log_system_info():
     except Exception as e:
         logger.warning(f"Failed to log system info: {str(e)}")
 
-def initialize_model():
+def download_model(model_name: str):
+    """Download and save model files under a subdirectory named after the given model name"""
+
+    target_dir = os.path.join(MODEL_DIR_BASE, model_name)
+
+    try:
+        # Create target directory structure
+        os.makedirs(target_dir, exist_ok=True)
+
+        logger.info(f"Downloading {model_name} processor configuration...")
+        processor = AutoProcessor.from_pretrained(
+            f"Qwen/{model_name}",
+        )
+        processor.save_pretrained(target_dir)
+
+        logger.info(f"Downloading {model_name} model files...")
+        with torch.inference_mode():
+            model_temp = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                f"Qwen/{model_name}",
+                torch_dtype=torch.float16,
+                device_map="auto",
+                offload_folder="offload",
+                offload_state_dict=True,
+                low_cpu_mem_usage=True
+            )
+
+        logger.info(f"Saving model to {target_dir}...")
+        model_temp.save_pretrained(
+            target_dir,
+            safe_serialization=True,
+            max_shard_size="2GB"
+        )
+
+        # Cleanup temporary files
+        if os.path.exists("offload"):
+            shutil.rmtree("offload")
+
+    except Exception as e:
+        logger.error(f"Model download failed: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Failed to save model '{model_name}'") from e
+
+def initialize_model(model_name: str):
     """Initialize the model and processor"""
-    global model, processor
+    global model, processor, current_loaded_model
     if model is None or processor is None:
         try:
             start_time = time.time()
             logger.info("Starting model initialization...")
             log_system_info()
-            
+
+            # Construct full path to model directory
+            model_dir_path = os.path.join(MODEL_DIR_BASE, model_name)
+
+            # Check and download model files if needed
+            if not os.path.exists(model_dir_path):
+                logger.warning(f"Model '{model_name}' not found. Downloading now...")
+                try:
+                    download_model(model_name)
+                except Exception as e:
+                    raise RuntimeError("Download failed: " + str(e))
+            elif args.resume:
+                logger.warning(f"Resuming download of model '{model_name}'.")
+                try:
+                    download_model(model_name)
+                except Exception as e:
+                    raise RuntimeError("Download failed: " + str(e))
+            else:
+                logger.info(f"Using existing files from {model_dir_path}")
+
+            # Check for flash attention availability first
+            use_flash = False
             try:
                 import flash_attn
                 logger.info("Flash attention is available, using it...")
+                use_flash = True
+            except ImportError:
+                logger.warning("Flash attention not available. Using default implementation.")
+
+            if args.quant:  # Quantization requested
+                if not torch.cuda.is_available():
+                    raise RuntimeError("Quantization requires CUDA support")
+
+                try:
+                    import bitsandbytes as bnb
+                except ImportError:
+                    logger.error(
+                        "bitsandbytes is required for quantization. Install with: pip install bitsandbytes -U"
+                    )
+                    raise
+
+                model_kwargs = {
+                    'device_map': 'auto',
+                    'torch_dtype': torch.float16,
+                    'local_files_only': True
+                }
+
+                # Add flash attention if available
+                if use_flash:
+                    model_kwargs['attn_implementation'] = "flash_attention_2"
+
+                if args.quant == 'int8':
+                    model_kwargs["load_in_8bit"] = True
+                elif args.quant == 'int4':
+                    model_kwargs.update({
+                        "load_in_4bit": True,
+                        "bnb_4bit_use_double_quant": True,
+                        "bnb_4bit_compute_dtype": torch.float16
+                    })
+
+                # Load quantized model
+                logger.info(f"Loading {args.quant}-bit quantized model...")
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    MODEL_DIR,
-                    torch_dtype=torch.bfloat16,
-                    attn_implementation="flash_attention_2",
-                    device_map="auto",
-                    local_files_only=True
+                    model_dir_path,
+                    **model_kwargs
                 ).eval()
-            except (ImportError, ModuleNotFoundError) as e:
-                logger.warning(f"Flash attention not available: {str(e)}")
-                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    MODEL_DIR,
-                    torch_dtype=torch.bfloat16,
-                    device_map="auto",
-                    local_files_only=True
-                ).eval()
-            
-            processor = AutoProcessor.from_pretrained(
-                MODEL_DIR,
-                local_files_only=True
-            )
-            
+
+            else:  # Default loading path without quantization
+                try:
+                    import flash_attn
+                    logger.info("Flash attention is available, using it...")
+                    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                        model_dir_path,
+                        torch_dtype=torch.bfloat16,
+                        attn_implementation="flash_attention_2",
+                        device_map="auto",
+                        local_files_only=True
+                    ).eval()
+                except (ImportError, ModuleNotFoundError) as e:
+                    logger.warning(f"Flash attention not available: {str(e)}")
+                    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                        model_dir_path,
+                        torch_dtype=torch.bfloat16,
+                        device_map="auto",
+                        local_files_only=True
+                    ).eval()
+
+            processor = AutoProcessor.from_pretrained(model_dir_path, local_files_only=True)
+            current_loaded_model = model_name
+
             end_time = time.time()
             logger.info(f"Model initialized in {end_time - start_time:.2f} seconds")
             log_system_info()
+
         except Exception as e:
-            logger.error(f"Model initialization error: {str(e)}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize model: {str(e)}")
+            logger.error(f"Error initializing model: {str(e)}", exc_info=True)
+            raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting application initialization...")
     try:
-        initialize_model()
+        initialize_model(args.model)
         logger.info("Application startup complete!")
         yield
     finally:
@@ -221,11 +349,11 @@ async def list_models():
     return ModelList(
         data=[
             ModelCard(
-                id="Qwen2.5-VL-7B-Instruct",
+                id=current_loaded_model,
                 created=1709251200,
                 owned_by="Qwen",
                 permission=[{
-                    "id": "modelperm-Qwen2.5-VL-7B-Instruct",
+                    "id": current_loaded_model,
                     "created": 1709251200,
                     "allow_create_engine": False,
                     "allow_sampling": True,
@@ -243,8 +371,8 @@ async def list_models():
                     "embeddings": False,
                     "text_completion": True
                 },
-                context_window=4096,
-                max_tokens=2048
+                context_window=131072,
+                max_tokens=8192
             )
         ]
     )
@@ -252,11 +380,18 @@ async def list_models():
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest):
     """Handle chat completion requests with vision support"""
+
+    if request.model != current_loaded_model:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested model '{request.model}' not loaded. Current model is {current_loaded_model}"
+        )
+
     try:
         request_start_time = time.time()
         logger.info(f"Received chat completion request for model: {request.model}")
         logger.info(f"Request content: {request.json()}")
-        
+
         messages = []
         for msg in request.messages:
             if isinstance(msg.content, str):
@@ -277,15 +412,15 @@ async def chat_completions(request: ChatCompletionRequest):
                                     "image": process_base64_image(content_item.image_url["url"])
                                 })
                 messages.append({"role": msg.role, "content": processed_content})
-        
+
         text = processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
+
         image_inputs, video_inputs = process_vision_info(messages)
-        
+
         inputs = processor(
             text=[text],
             images=image_inputs,
@@ -293,24 +428,24 @@ async def chat_completions(request: ChatCompletionRequest):
             padding=True,
             return_tensors="pt"
         ).to(device)
-        
+
         generated_ids = model.generate(
             **inputs,
             max_new_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p
         )
-        
+
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
-        
+
         response = processor.batch_decode(
             generated_ids_trimmed,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False
         )[0]
-        
+
         if request.response_format and request.response_format.get("type") == "json_object":
             try:
                 if response.startswith('```'):
@@ -322,10 +457,10 @@ async def chat_completions(request: ChatCompletionRequest):
             except json.JSONDecodeError as e:
                 logger.error(f"JSON parsing error: {str(e)}")
                 raise HTTPException(status_code=400, detail=f"Invalid JSON response: {str(e)}")
-        
+
         total_time = time.time() - request_start_time
         logger.info(f"Request completed in {total_time:.2f} seconds")
-        
+
         return ChatCompletionResponse(
             id=f"chatcmpl-{datetime.now().strftime('%Y%m%d%H%M%S')}",
             object="chat.completion",
@@ -360,9 +495,10 @@ async def health_check():
         "model_loaded": model is not None and processor is not None,
         "device": str(device),
         "cuda_available": torch.cuda.is_available(),
+        "quantization": args.quant if args.quant else "none",
         "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
         "timestamp": datetime.now().isoformat()
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=9192)
+    uvicorn.run(app, host="0.0.0.0", port=args.port)

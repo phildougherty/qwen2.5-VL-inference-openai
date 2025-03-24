@@ -46,6 +46,23 @@ docker-compose up -d
 curl http://localhost:9192/health
 ```
 
+## Command Line Arguments
+### --port
+Specifies the port to listen on for OpenAI compatible HTTP requests.
+Default: 9192
+
+### --model
+Specifies the model to load. This will be downloaded automatically if it does not exist.
+Default: Qwen2.5-VL-7B-Instruct
+Choices: Qwen2.5-VL-3B-Instruct, Qwen2.5-VL-7B-Instruct, Qwen2.5-VL-72B-Instruct
+
+### --resume
+Resumes a failed download.
+
+### --quant
+Enables bitsandbytes quantisation
+Choices: int8, int4
+
 ## API Endpoints
 
 ### GET /v1/models
@@ -115,10 +132,9 @@ Environment variables in docker-compose.yml:
 
 ## Integration with OpenWebUI
 
-1. In OpenWebUI admin panel, add a new API endpoint:
-   - Base URL: `http://localhost:9192`
+1. In OpenWebUI admin panel, add a new OpenAI API endpoint:
+   - Base URL: `http://<server name>:9192/v1`
    - API Key: (leave blank)
-   - Model: `Qwen2.5-VL-7B-Instruct`
 
 2. The model will appear in the model selection dropdown with vision capabilities enabled.
 
