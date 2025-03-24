@@ -130,8 +130,7 @@ curl http://localhost:9192/health
 
 Environment variables in docker-compose.yml:
 - `NVIDIA_VISIBLE_DEVICES`: GPU device selection
-- `MODEL_DIR`: Model directory path
-- `PORT`: API port (default: 9192)
+- `QWEN_MODEL`: Select the Qwen 2.5 VL model to load
 
 ## Integration with OpenWebUI
 
