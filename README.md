@@ -16,6 +16,7 @@ An OpenAI-compatible API server for the Qwen2.5-VL vision-language model, enabli
 
 ## Prerequisites
 
+- Python 3.9.12
 - Docker and Docker Compose
 - NVIDIA GPU with CUDA support (recommended)
 - NVIDIA Container Toolkit
