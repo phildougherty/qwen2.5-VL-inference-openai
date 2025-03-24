@@ -14,7 +14,7 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-"all"}
       - QWEN_MODEL: ${QWEN_MODEL:-"Qwen2.5-VL-7B-Instruct"}
     restart: unless-stopped
     healthcheck:
