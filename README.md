@@ -54,7 +54,9 @@ Default: 9192
 
 ### --model
 Specifies the model to load. This will be downloaded automatically if it does not exist.
+\
 Default: Qwen2.5-VL-7B-Instruct
+\
 Choices: Qwen2.5-VL-3B-Instruct, Qwen2.5-VL-7B-Instruct, Qwen2.5-VL-72B-Instruct
 
 ### --resume
@@ -228,22 +230,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For issues and feature requests, please use the GitHub issue tracker.
-```
-
-This README provides:
-1. Clear installation instructions
-2. API documentation
-3. Configuration options
-4. System requirements
-5. Usage examples
-6. Development guidelines
-7. Monitoring information
-8. Error handling details
-9. Contributing guidelines
-
-You may want to customize:
-- Repository URLs
-- License information
-- Specific system requirements based on your deployment
-- Additional configuration options
-- Any specific deployment instructions for your environment
